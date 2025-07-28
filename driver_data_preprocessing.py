@@ -1,0 +1,256 @@
+import re
+import collections
+import glob
+import os 
+import random
+import numpy
+import math
+import matplotlib.pyplot as plt
+
+
+class PreProcessingObservations:
+    def __init__(self):
+        self.total_mu=[(0,0)]
+        self.total_cov_matrix=numpy.zeros((2, 2))
+        self.total_obs=0
+    def load_observations(self,filepath):
+        """
+        Processes the input files and parses them to extract object ID, frame, x, and y coordinates.
+        Parameters:
+        -filenames: list of filenames to parse
+        Returns:
+        -observations: a dictionary (object id: (frame,x_cordinate,y_coordinate)).
+        """
+        pattern = re.compile(r'''
+        \s*(?P<object_id>\d+),
+        \s*(?P<within_frame_id>\d+),
+        \s*'(?P<file_path>[^']+)',
+        \s*cX\s*=\s*(?P<x>\d+),
+        \s*cY\s*=\s*(?P<y>\d+),
+        \s*Frame\s*=\s*(?P<frame>\d+)
+        ''', re.VERBOSE)
+        
+        observations = collections.defaultdict(list)
+
+        with open(filepath) as object_xys:
+            prefix,extension=self.get_file_prefix(filepath)
+            for line in object_xys:
+                m = pattern.match(line)
+                if m:
+                    obj_id = int(m.group('object_id'))
+                    frame = int(m.group('frame'))
+                    cX = int(m.group('x'))
+                    cY = int(m.group('y'))
+                    
+                    if prefix!= "" and extension!= "":
+                        obj_id = f"{prefix}_{obj_id}_{extension}"
+                    
+                    observations[obj_id].append((frame, cX, cY))
+
+        # Ensure observations are sorted by frame
+        
+        for object_id in observations:
+            observations[object_id].sort()
+        
+        for object_id, items in observations.items():
+            assert all(items[i][0] <= items[i + 1][0] for i in range(len(items) - 1)), f"Items for {object_id} are not sorted by frame"    
+        
+        return observations
+    
+    def get_file_prefix(self, filepath):
+        '''
+        extract the filename/dataset name to append it to object_id, since each dataset starts with 1... appending to same dictionaries will cause issues.
+        Parameters:
+        -filename: a str containing dataset/filename
+        Returns:
+        str matching re patterns
+        '''
+
+        '''
+        Extracts (date, image_id) from a filename if it contains 'ObjectXYs'.
+    
+        Returns:
+        (date_str, image_id) if valid; otherwise None
+        '''
+        filename = os.path.basename(filepath)
+        # Ensure it contains 'ObjectXYs'
+        if "ObjectXYs" not in filename:
+            raise ValueError(f"Filename isn't valid: {filename}")
+        
+        if filename == "ObjectXYs.txt":
+            return "", ""
+            
+        # Regex pattern: match DATE, IMAGE info before ObjectXYs        
+        pattern = re.compile(r'(?P<date>\d{1,2}-\d{1,2}-\d{2})_(?P<image_id>.+)ObjectXYs\.txt$')
+        match = pattern.search(filename)
+    
+        if match:
+            date_str = match.group('date')
+            image_id = match.group('image_id')
+                      
+            return date_str, image_id
+        else:
+            raise ValueError(f"Filename pattern mismatch: {filename}")
+
+
+    def compute_per_frame_avg_jump(self,observations):
+        """
+        takes observation dictionary and returns a dictionary of mean Euclidean magnitude of tracking points per frame
+        Parameters:
+        -observations: a dictionary (object id: (frame,x_cordinate,y_coordinate)).
+        Returns:
+        -avg_jump_per_frame: a dictionary (frame: (mean_magnitude_of_frame))
+        """
+        frame_jumps = collections.defaultdict(list)
+
+        for obj_id, points in observations.items():
+            for i in range(len(points) - 1):
+                f1, x1, y1 = points[i]
+                f2, x2, y2 = points[i+1]
+                if f2 > f1:
+                    dist = numpy.linalg.norm([x2 - x1, y2 - y1])
+                    frame_jumps[f1].append(dist)
+                    
+        avg_jump_per_frame = {f: numpy.mean(j) for f, j in frame_jumps.items() if j}
+        return avg_jump_per_frame
+
+
+    def detect_large_jumps(self,observations, avg_frame_jump):
+        """
+        takes observation dictionary and returns a dictionary of mean Euclidean magnitude of tracking points per frame
+        Parameters:
+        -observations: a dictionary (object id: (frame,x_cordinate,y_coordinate)).
+        -avg_frame_jump: a dictionary (frame: (mean_magnitude_of_frame))
+        Returns:
+        -flagged: a list of ids whose any frame magnitude is greater than the average
+        """
+        flagged = []
+
+        for obj_id, points in observations.items():
+            for i in range(len(points) - 1):
+                f1, x1, y1 = points[i]
+                f2, x2, y2 = points[i+1]
+                if f2 > f1:
+                    dist = numpy.linalg.norm([x2 - x1, y2 - y1])
+                    avg_jump = avg_frame_jump.get(f1, None)
+                    if dist > avg_jump:
+                        flagged.append(obj_id)
+                        break  # One violation is enough
+        return flagged
+
+
+    def angle_between(self,v1, v2):
+        """
+        takes two vector and calculates the angle between them
+        Parameters:
+        v1 = vector between point xn0,yn0->xn1,yn1
+        v2 = vector between point xn1,yn1->xn2,yn2
+        Returns:
+        angle in degree
+        """
+        dot = numpy.dot(v1, v2)
+        norm = numpy.linalg.norm(v1) * numpy.linalg.norm(v2)
+        if norm == 0:
+            return 0
+        cos_theta = numpy.clip(dot / norm, -1.0, 1.0)
+        return math.degrees(numpy.arccos(cos_theta))
+
+    def detect_direction_instability(self,observations, angle_threshold):
+        """
+        takes observation dictionary and returns a lists of object_id which has biologically impossible angle turn. we compute the angle between consecutive vectors
+        Parameters:
+        -observations: a dictionary (object id: (frame,x_cordinate,y_coordinate)).
+        -angle_threshold: int, value we consider as impossible turns
+        Returns:
+        -unstable_ids: list of object_id whose tracking vector has more than 90 turn
+        """
+        unstable_ids = []
+
+        for obj_id, points in observations.items():
+            angles = []
+            for i in range(len(points) - 2):
+                f1, x1, y1 = points[i]
+                f2, x2, y2 = points[i+1]
+                f3, x3, y3 = points[i+2]
+
+                v1 = [x2 - x1, y2 - y1]
+                v2 = [x3 - x2, y3 - y2]
+
+                if f2 > f1 and f3 > f2:
+                    angle = self.angle_between(v1, v2)
+                    angles.append(angle)
+
+            if any(a > angle_threshold for a in angles):
+                unstable_ids.append(obj_id)
+
+        return unstable_ids
+    
+    def is_starting_or_ending_near_edge(self,observations, width, height, margin_ratio):
+        """
+        takes observation dictionary and returns 2 lists of object_id indentify as good track and object_ids identified as bad tracks based on boundary parameters
+        Parameters:
+        -observations: a dictionary (object id: (frame,x_cordinate,y_coordinate)).
+        -width: int, the frame width should be 4096
+        -height: int, the frame height should be 2160
+        -margin_ratio: float, pertencage of boundary margin we consider valid
+        Returns:
+        -valid_track_ids: list of object_id whose tracking is within the boundary
+        -invalid_track_ids: list of object_id whose tracking either starts late or ends early
+        """
+        valid_track_ids=[]
+        invalid_track_ids=[]
+        for obj_id,points in observations.items():
+            if len(points)>5:
+                x_start, y_start = points[0][1], points[0][2]  # Starting coordinates
+                x_end, y_end = points[-1][1], points[-1][2]    # Ending coordinates
+
+                margin_x = margin_ratio * width
+                margin_y = margin_ratio * height
+        
+                valid_entry = (x_start <= margin_x or y_start <= margin_y)
+                valid_exit = (x_end > (width - margin_x) or y_end > (height - margin_y))
+            
+                if valid_entry and valid_exit:
+                    valid_track_ids.append(obj_id)
+                else:
+                    invalid_track_ids.append(obj_id)
+            else:
+                invalid_track_ids.append(obj_id)
+        
+        return valid_track_ids,invalid_track_ids
+        
+    def detect_bad_tracks(self,observations,angle_threshold,boundary_width,boundary_height,boundary_threshold):
+        """
+        takes observation dictionary and returns 2 lists of object_id indentify as good track and object_ids identified as bad tracks
+        Parameters:
+        -observations: a dictionary (object id: (frame,x_cordinate,y_coordinate)).
+        -angle_threshold: int of value , the angle parameter to indentify biologically impausiable turns
+        -boundary_width: int, the frame width
+        -boundary_height: int, the frame height
+        -boundary_threshold: float, pertencage of boundary margin we consider valid
+        Returns:
+        -good_tracks_ids: list of object_id passes the filtering
+        -bad_tracks_ids: list of object_id don't pass the filtering
+        """
+        valid_track_ids,invalid_track_ids=self.is_starting_or_ending_near_edge(observations,boundary_width,boundary_height,boundary_threshold)
+        print(f"violating boundary: {len(invalid_track_ids)}")
+        avg_frame_jump = self.compute_per_frame_avg_jump(observations)
+        jumpy_track_ids = set(self.detect_large_jumps(observations, avg_frame_jump))
+        print(f"unsual jumps: {len(jumpy_track_ids)}")
+        inconsisent_angle_ids = set(self.detect_direction_instability(observations, angle_threshold))
+        print(f"unusual angles: {len(inconsisent_angle_ids)}")
+        
+        unstable_track_ids = jumpy_track_ids.intersection(inconsisent_angle_ids)
+        print(f"bad tracks due to jump and jittery movements: {len(unstable_track_ids)}")
+        
+        all_tracks_ids = set(observations.keys())
+        bad_tracks_ids=set(invalid_track_ids).union(unstable_track_ids)     
+        good_tracks_ids = all_tracks_ids - bad_tracks_ids
+        print(f"good tracks: {len(good_tracks_ids)}, bad tracks: {len(bad_tracks_ids)}")
+        
+        return bad_tracks_ids,good_tracks_ids
+
+
+   
+    
+    
