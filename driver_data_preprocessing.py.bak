@@ -5,6 +5,7 @@ import os
 import random
 import numpy
 import math
+import matplotlib.pyplot as plt
 
 
 class PreProcessingObservations:

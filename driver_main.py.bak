@@ -28,12 +28,12 @@ def plot_object_trajectories(curr_obs,extracted_ids,filepath,track_type):
             matplotlib.pyplot.plot(x, y, marker="o", linestyle="-", color=color,label=obj_id)  # Plot trajectory
 
             # Labels & Formatting
-            matplotlib.pyplot.xlabel("X Coordinate")
-            matplotlib.pyplot.ylabel("Y Coordinate")
-            matplotlib.pyplot.title(f"{'GOOD TRACKS' if track_type == 1 else 'BAD TRACKS' }")
-            matplotlib.pyplot.legend()
-            matplotlib.pyplot.grid(True, linestyle="--", alpha=0.6)  
-            matplotlib.pyplot.show()
+            plt.xlabel("X Coordinate")
+            plt.ylabel("Y Coordinate")
+            plt.title(f"{'GOOD TRACKS' if track_type == 1 else 'BAD TRACKS' }")
+            plt.legend()
+            plt.grid(True, linestyle="--", alpha=0.6)  
+            plt.show()
 def open_file_from_user_input():
     
     """
