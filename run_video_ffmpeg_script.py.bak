@@ -82,9 +82,9 @@ def run_ffplay_duration(video_path, width, height,start_frame, end_frame, fps, s
     try:
         subprocess.run(cmd)
     except FileNotFoundError:
-        print(f"ffplay not found. Make sure FFmpeg is installed and in your system PATH.")
+        print("❌ ffplay not found. Make sure FFmpeg is installed and in your system PATH.")
     except Exception as e:
-        print(f"Error running ffplay: {e}")   
+        print(f"❌ Error running ffplay: {e}")   
 
 def run_ffplay(video_path,width,height):
     """
