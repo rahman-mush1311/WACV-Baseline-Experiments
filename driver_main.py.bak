@@ -21,19 +21,75 @@ def plot_object_trajectories(curr_obs,extracted_ids,filepath,track_type):
     for obj_id in extracted_ids:        
         if obj_id in curr_obs:
             points = curr_obs[obj_id]
-            
-            x = [p[1] for p in points]  # Extract x-coordinates
-            y = [p[2] for p in points]  # Extract y-coordinates
-            color = "green" if track_type==1 else "brown"
-            matplotlib.pyplot.plot(x, y, marker="o", linestyle="-", color=color,label=obj_id)  # Plot trajectory
+            if len(points)<2:
+                continue
+            else:
+                x = [p[1] for p in points]  # Extract x-coordinates
+                y = [p[2] for p in points]  # Extract y-coordinates
+                color = "green" if track_type==1 else "brown"
+                matplotlib.pyplot.plot(x, y, marker="o", linestyle="-", color=color,label=obj_id)  # Plot trajectory
 
-            # Labels & Formatting
-            plt.xlabel("X Coordinate")
-            plt.ylabel("Y Coordinate")
-            plt.title(f"{'GOOD TRACKS' if track_type == 1 else 'BAD TRACKS' }")
-            plt.legend()
-            plt.grid(True, linestyle="--", alpha=0.6)  
-            plt.show()
+                # Labels & Formatting
+                matplotlib.pyplot.xlabel("X Coordinate")
+                matplotlib.pyplot.ylabel("Y Coordinate")
+                matplotlib.pyplot.title(f"{'GOOD TRACKS' if track_type == 1 else 'BAD TRACKS' }")
+                matplotlib.pyplot.legend()
+                matplotlib.pyplot.grid(True, linestyle="--", alpha=0.6)  
+                matplotlib.pyplot.show()
+
+def plot_trajectories_interactive(extracted_ids, curr_obs, track_type):
+    """
+    Plots interested objects' trajectory only x and y coordinates one by one. With the key left it goes left, with right goes right
+    
+    Params:
+        - curr_obs: dict of {object_id:[(frame, x, y), ...]}
+        - extracted_ids: list of all interested object IDs (subset of keys in observations)
+        - track_type: 0/1 indicating good/bad track
+    Returns:
+        N/A
+    """
+    ids_to_plot = [obj_id for obj_id in extracted_ids if obj_id in curr_obs and len(curr_obs[obj_id]) >= 2]
+    if not ids_to_plot:
+        print("!!!!No tracks to display!!!")
+        return
+
+    total = len(ids_to_plot)
+    current_index = [0]
+    
+    def plot_one(index):
+        obj_id = ids_to_plot[index]
+        points = curr_obs[obj_id]
+        x = [p[1] for p in points]
+        y = [p[2] for p in points]
+        color = "green" if track_type == 1 else "brown"
+
+        matplotlib.pyplot.clf()
+        matplotlib.pyplot.plot(x, y, marker="o", linestyle="-", color=color, label=f"Object ID: {obj_id}")
+        matplotlib.pyplot.xlabel("X Coordinate")
+        matplotlib.pyplot.ylabel("Y Coordinate")
+        matplotlib.pyplot.title(f"{'GOOD TRACKS' if track_type == 1 else 'BAD TRACKS'}\nTrack {index+1} of {total}")
+        matplotlib.pyplot.legend()
+        matplotlib.pyplot.grid(True, linestyle="--", alpha=0.6)
+        matplotlib.pyplot.draw()
+
+    def on_key(event):
+        if event.key == 'right':
+            if current_index[0] < total - 1:
+                current_index[0] += 1
+                plot_one(current_index[0])
+        elif event.key == 'left':
+            if current_index[0] > 0:
+                current_index[0] -= 1
+                plot_one(current_index[0])
+        elif event.key == 'escape':
+            matplotlib.pyplot.close()
+
+    # Launch plot
+    fig = matplotlib.pyplot.figure()
+    fig.canvas.mpl_connect('key_press_event', on_key)
+    plot_one(current_index[0])
+    matplotlib.pyplot.show()
+    
 def open_file_from_user_input():
     
     """
@@ -70,10 +126,12 @@ if __name__ == "__main__":
         observations=observation_processor.load_observations(file_full_path)
         print(f"{len(observations)}")
         bad_track_ids,good_track_ids=observation_processor.detect_bad_tracks(observations,90,4096,2160,0.25)
-        print(f"{len(bad_track_ids)}")
+        #print(f"{len(bad_track_ids)}")
 
-        plot_object_trajectories(observations,bad_track_ids,file_full_path,0)
-        plot_object_trajectories(observations,good_track_ids,file_full_path,1)
+        #plot_object_trajectories(observations,bad_track_ids,file_full_path,0)
+        #plot_object_trajectories(observations,good_track_ids,file_full_path,1)
+        #plot_trajectories_interactive(bad_track_ids,observations,0)
+        #plot_trajectories_interactive(good_track_ids,observations,1)
     else:
         print(f"!!!Invalid File!!!")
 

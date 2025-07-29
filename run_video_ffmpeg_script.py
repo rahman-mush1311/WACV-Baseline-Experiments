@@ -127,14 +127,14 @@ if __name__ == "__main__":
             contents = f.readlines()
         print(f"File loaded: {trajectory_txt_filename} ({len(contents)} lines)")
         file_pre_processor_for_visualization = PreProcessingObservations()
-        observations,obs_type=file_pre_processor_for_visualization.load_observations(trajectory_txt_filename)
+        observations=file_pre_processor_for_visualization.load_observations(trajectory_txt_filename)
         if trajectory_object_id in observations:
             print("=== FFplay Video Player ===")
             start_frame_number=observations[trajectory_object_id][0][0]
             end_frame_number=observations[trajectory_object_id][-1][0]
             
             fps=get_video_fps(trajectory_video_file_name)
-            print(f"{trajectory_object_id}: {start_frame}-->{end_frame} {fps}")
+            print(f"{trajectory_object_id}: {start_frame_number}-->{end_frame_number} {fps}")
             run_ffplay_duration(trajectory_video_file_name, 1920, 1080,start_frame_number,end_frame_number,fps,2.0)
         else:
             print(f"the {trajectory_object_id} doesn't exsist")
